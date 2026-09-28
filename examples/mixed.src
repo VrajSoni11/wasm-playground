@@ -1,0 +1,22 @@
+// Prime check + circle area: demonstrates bool, float, and control flow together
+fn isPrime(n: int) -> bool {
+  if (n < 2) {
+    return false;
+  }
+  let i = 2;
+  while (i * i <= n) {
+    if (n - (n / i) * i == 0) {
+      return false;
+    }
+    i = i + 1;
+  }
+  return true;
+}
+
+fn circleArea(radius: float) -> float {
+  return radius * radius * 3.14159;
+}
+
+print(isPrime(17));
+print(isPrime(18));
+print(circleArea(2.5));

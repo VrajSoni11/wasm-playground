@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>WASM Compiler Playground</title>
+<script src="https://cdn.jsdelivr.net/npm/wabt@1.0.36/index.js"></script>
+<script src="compiler.bundle.js"></script>
+<style>
+  :root {
+    --bg: #1e1e1e;
+    --panel: #252526;
+    --border: #3c3c3c;
+    --text: #d4d4d4;
+    --accent: #4ec9b0;
+    --error: #f48771;
+    --ok: #89d185;
+    --mono: "Consolas", "Menlo", "Monaco", monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; color: var(--accent); }
+  header .sub { font-size: 12px; color: #888; }
+  main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--border);
+    overflow: hidden;
+  }
+  .col { display: flex; flex-direction: column; background: var(--bg); overflow: hidden; }
+  .col-header {
+    padding: 6px 10px;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #999;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  textarea, pre {
+    flex: 1;
+    margin: 0;
+    padding: 10px;
+    background: var(--bg);
+    color: var(--text);
+    border: none;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.5;
+    resize: none;
+    outline: none;
+    overflow: auto;
+    white-space: pre-wrap;
+  }
+  .right-panels { display: flex; flex-direction: column; }
+  .tabs { display: flex; border-bottom: 1px solid var(--border); }
+  .tab {
+    padding: 6px 14px;
+    font-size: 12px;
+    cursor: pointer;
+    color: #999;
+    border-right: 1px solid var(--border);
+  }
+  .tab.active { color: var(--accent); background: var(--panel); }
+  .tab-content { flex: 1; display: none; overflow: auto; }
+  .tab-content.active { display: block; }
+  select {
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 4px 8px;
+    font-size: 12px;
+    border-radius: 4px;
+  }
+  button {
+    background: var(--accent);
+    color: #1e1e1e;
+    border: none;
+    padding: 6px 16px;
+    font-weight: 600;
+    font-size: 13px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  button:hover { opacity: 0.85; }
+  button:active { transform: translateY(1px); }
+  .status { font-size: 12px; padding: 2px 0; }
+  .status.error { color: var(--error); }
+  .status.ok { color: var(--ok); }
+  .output-line { padding: 1px 0; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>⚙ WASM Compiler Playground</h1>
+  <span class="sub">Custom language → Lexer → Parser → Semantic Analysis → WAT → WebAssembly</span>
+  <div style="flex:1"></div>
+  <select id="exampleSelect">
+    <option value="">— Load example —</option>
+    <option value="fibonacci">Recursive Fibonacci</option>
+    <option value="factorial">Iterative Factorial</option>
+    <option value="gcd">GCD (Euclidean algorithm)</option>
+    <option value="mixed">Prime check + float area</option>
+  </select>
+  <button id="runBtn">▶ Compile &amp; Run</button>
+</header>
+
+<main>
+  <div class="col">
+    <div class="col-header">Source code</div>
+    <textarea id="sourceInput" spellcheck="false">fn fib(n: int) -> int {
+  if (n <= 1) {
+    return n;
+  } else {
+    return fib(n - 1) + fib(n - 2);
+  }
+}
+
+print(fib(10));
+print(fib(15));
+</textarea>
+  </div>
+
+  <div class="col right-panels">
+    <div class="tabs">
+      <div class="tab active" data-tab="output">Output</div>
+      <div class="tab" data-tab="tokens">Tokens</div>
+      <div class="tab" data-tab="ast">AST</div>
+      <div class="tab" data-tab="wat">WAT</div>
+    </div>
+    <pre class="tab-content active" id="tab-output"></pre>
+    <pre class="tab-content" id="tab-tokens"></pre>
+    <pre class="tab-content" id="tab-ast"></pre>
+    <pre class="tab-content" id="tab-wat"></pre>
+  </div>
+</main>
+
+<script>
+const EXAMPLES = {
+  fibonacci: `fn fib(n: int) -> int {
+  if (n <= 1) {
+    return n;
+  } else {
+    return fib(n - 1) + fib(n - 2);
+  }
+}
+
+print(fib(10));
+print(fib(15));
+`,
+  factorial: `fn factorial(n: int) -> int {
+  let result = 1;
+  let i = 1;
+  while (i <= n) {
+    result = result * i;
+    i = i + 1;
+  }
+  return result;
+}
+
+print(factorial(5));
+print(factorial(10));
+`,
+  gcd: `fn gcd(a: int, b: int) -> int {
+  while (b != 0) {
+    let t = b;
+    b = a - (a / b) * b;
+    a = t;
+  }
+  return a;
+}
+
+print(gcd(48, 18));
+print(gcd(1071, 462));
+`,
+  mixed: `fn isPrime(n: int) -> bool {
+  if (n < 2) {
+    return false;
+  }
+  let i = 2;
+  while (i * i <= n) {
+    if (n - (n / i) * i == 0) {
+      return false;
+    }
+    i = i + 1;
+  }
+  return true;
+}
+
+fn circleArea(radius: float) -> float {
+  return radius * radius * 3.14159;
+}
+
+print(isPrime(17));
+print(isPrime(18));
+print(circleArea(2.5));
+`,
+};
+
+document.getElementById("exampleSelect").addEventListener("change", (e) => {
+  if (e.target.value) {
+    document.getElementById("sourceInput").value = EXAMPLES[e.target.value];
+    e.target.value = "";
+  }
+});
+
+// Tab switching
+document.querySelectorAll(".tab").forEach((tab) => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
+    document.querySelectorAll(".tab-content").forEach((c) => c.classList.remove("active"));
+    tab.classList.add("active");
+    document.getElementById("tab-" + tab.dataset.tab).classList.add("active");
+  });
+});
+
+function setPanel(id, text) {
+  document.getElementById(id).textContent = text;
+}
+
+function appendOutput(text, cls) {
+  const pre = document.getElementById("tab-output");
+  const span = document.createElement("div");
+  span.className = "output-line" + (cls ? " " + cls : "");
+  span.textContent = text;
+  pre.appendChild(span);
+}
+
+let wabtInstance = null;
+
+async function compileAndRun() {
+  const source = document.getElementById("sourceInput").value;
+  const outputPanel = document.getElementById("tab-output");
+  outputPanel.innerHTML = "";
+  setPanel("tab-tokens", "");
+  setPanel("tab-ast", "");
+  setPanel("tab-wat", "");
+
+  const { Lexer, Parser, Analyzer, CodeGen } = window.WasmCompiler;
+
+  // ---- Phase 1: Lexing ----
+  let tokens;
+  try {
+    tokens = new Lexer(source).scanTokens();
+    setPanel("tab-tokens", tokens.map((t) => t.toString()).join("\n"));
+  } catch (err) {
+    appendOutput("✗ Lexical analysis failed: " + err.message, "error");
+    return;
+  }
+
+  // ---- Phase 2: Parsing ----
+  let ast;
+  try {
+    ast = new Parser(tokens).parse();
+    setPanel("tab-ast", JSON.stringify(ast, null, 2));
+  } catch (err) {
+    appendOutput("✗ Parsing failed: " + err.message, "error");
+    return;
+  }
+
+  // ---- Phase 3: Semantic analysis ----
+  let functionTable;
+  try {
+    functionTable = new Analyzer().analyze(ast);
+    appendOutput("✓ Semantic analysis passed (no type errors)", "ok");
+  } catch (err) {
+    appendOutput("✗ Semantic analysis failed: " + err.message, "error");
+    return;
+  }
+
+  // ---- Phase 4: Code generation ----
+  let wat;
+  try {
+    wat = new CodeGen(functionTable).generate(ast);
+    setPanel("tab-wat", wat);
+  } catch (err) {
+    appendOutput("✗ Code generation failed: " + err.message, "error");
+    return;
+  }
+
+  // ---- Phase 5: WAT -> WASM binary -> execute ----
+  try {
+    if (!wabtInstance) wabtInstance = await window.WabtModule();
+    const wasmModule = wabtInstance.parseWat("playground.wat", wat);
+    const { buffer } = wasmModule.toBinary({});
+
+    const importObject = {
+      env: {
+        print_i32: (v) => appendOutput(String(v)),
+        print_f32: (v) => appendOutput(String(Math.fround(v))),
+        print_bool: (v) => appendOutput(String(Boolean(v))),
+      },
+    };
+
+    const { instance } = await WebAssembly.instantiate(buffer, importObject);
+    instance.exports.main();
+    appendOutput("— program finished —", "ok");
+  } catch (err) {
+    appendOutput("✗ WASM execution failed: " + err.message, "error");
+  }
+}
+
+document.getElementById("runBtn").addEventListener("click", compileAndRun);
+
+// Run the default example once on load
+compileAndRun();
+</script>
+
+</body>
+</html>

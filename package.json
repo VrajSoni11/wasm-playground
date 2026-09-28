@@ -1,0 +1,20 @@
+{
+  "name": "wasm-compiler",
+  "version": "1.0.0",
+  "description": "A source-to-WebAssembly compiler pipeline (lexer, parser, semantic analysis, WAT codegen) with a CLI and a browser playground.",
+  "main": "compile.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "node test/lexer.test.js && node test/parser.test.js && node test/analyzer.test.js && node test/codegen.test.js && node test/e2e.test.js",
+    "build:playground": "node build-playground.js",
+    "compile": "node compile.js"
+  },
+  "keywords": ["compiler", "webassembly", "wasm", "wat", "compiler-design"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "wabt": "^1.0.39"
+  }
+}
